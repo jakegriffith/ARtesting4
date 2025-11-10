@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dark Forest - Location-Based AR</title>
+    <meta name="description" content="Dark Forest Theory AR Experience - You Are Being Hunted">
+    
+    <!-- AR.js and A-Frame libraries -->
+    <script src="https://aframe.io/releases/1.4.2/aframe.min.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+    
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+        
+        #loading {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff0000;
+            font-family: 'Arial', sans-serif;
+            font-size: 24px;
+            text-align: center;
+            z-index: 1000;
+            text-shadow: 0 0 30px #ff0000;
+            font-weight: bold;
+        }
+        
+        #countdown {
+            font-size: 48px;
+            margin-top: 20px;
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        
+        #instructions {
+            position: fixed;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ff0000;
+            font-family: 'Arial', sans-serif;
+            font-size: 18px;
+            text-align: center;
+            z-index: 999;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 15px 25px;
+            border: 3px solid #ff0000;
+            border-radius: 5px;
+            max-width: 90%;
+            font-weight: bold;
+            box-shadow: 0 0 30px #ff0000;
+            display: none;
+        }
+        
+        #threat-counter {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ff0000;
+            font-family: 'Arial', sans-serif;
+            font-size: 32px;
+            text-align: center;
+            z-index: 999;
+            background: rgba(0, 0, 0, 0.9);
+            padding: 15px 30px;
+            border: 3px solid #ff0000;
+            border-radius: 10px;
+            font-weight: bold;
+            box-shadow: 0 0 30px #ff0000;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <!-- Loading message with countdown -->
+    <div id="loading">
+        <div>⚠️ ENTERING DARK FOREST ⚠️</div>
+        <div id="countdown">3</div>
+        <div style="font-size: 14px; margin-top: 10px;">Allow GPS and camera access</div>
+    </div>
+    
+    <!-- Instructions/Warning -->
+    <div id="instructions">
+        ⚠️ YOU ARE SURROUNDED ⚠️<br>
+        <small>Stay quiet. They are watching.</small>
+    </div>
+    
+    <!-- Threat Counter -->
+    <div id="threat-counter">
+        THREATS: <span id="threat-count">0</span>
+    </div>
+
+    <!-- A-Frame AR Scene -->
+    <a-scene
+        vr-mode-ui="enabled: false"
+        arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false;"
+        renderer="logarithmicDepthBuffer: true; precision: medium;"
+        device-orientation-permission-ui="enabled: false">
+        
+        <a-camera gps-camera rotation-reader look-controls="enabled: false"></a-camera>
+        
+        <!-- Main warning text - will be positioned dynamically -->
+        <a-entity id="warning-container" position="0 0 0">
+            <a-text 
+                id="main-warning"
+                value="⚠️ DANGER ⚠️"
+                color="#ff0000"
+                position="0 5 -15"
+                rotation="0 0 0"
+                scale="8 8 8"
+                align="center"
+                shader="flat"
+                transparent="true"
+                opacity="0">
+            </a-text>
+            
+            <a-text 
+                id="sub-warning"
+                value="PREDATORS DETECTED"
+                color="#ff6600"
+                position="0 3 -15"
+                rotation="0 0 0"
+                scale="4 4 4"
+                align="center"
+                shader="flat"
+                transparent="true"
+                opacity="0">
+            </a-text>
+        </a-entity>
+    </a-scene>
+
+    <script>
+        const scene = document.querySelector('a-scene');
+        const camera = document.querySelector('[gps-camera]');
+        
+        let userLat, userLon;
+        let lurkerEntities = [];
+        let threatCount = 0;
+        let lastPosition = null;
+        let movementDetectionActive = false;
+        
+        // Countdown animation
+        let countdownValue = 3;
+        const countdownEl = document.getElementById('countdown');
+        const countdownInterval = setInterval(() => {
+            countdownValue--;
+            if (countdownValue > 0) {
+                countdownEl.textContent = countdownValue;
+            } else {
+                clearInterval(countdownInterval);
+                countdownEl.textContent = '...';
+            }
+        }, 1000);
+        
+        // Wait for scene to load
+        scene.addEventListener('loaded', () => {
+            console.log('Scene loaded, requesting location...');
+            
+            // Request user location
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    userLat = position.coords.latitude;
+                    userLon = position.coords.longitude;
+                    
+                    console.log(`User location: ${userLat}, ${userLon}`);
+                    
+                    // Hide loading, show UI
+                    setTimeout(() => {
+                        document.getElementById('loading').style.display = 'none';
+                        document.getElementById('instructions').style.display = 'block';
+                        document.getElementById('threat-counter').style.display = 'block';
+                        
+                        // Initialize the Dark Forest
+                        initializeDarkForest();
+                        
+                        // Show warning text
+                        showWarnings();
+                        
+                        // Start movement detection after 2 seconds
+                        setTimeout(() => {
+                            movementDetectionActive = true;
+                            startMovementDetection();
+                        }, 2000);
+                    }, 3000);
+                },
+                (error) => {
+                    console.error('Geolocation error:', error);
+                    document.getElementById('loading').innerHTML = 
+                        '<div>⚠️ GPS ACCESS REQUIRED ⚠️</div>' +
+                        '<div style="font-size: 14px; margin-top: 10px;">Please enable location services</div>';
+                }
+            );
+        });
+        
+        // Show warning text with animation
+        function showWarnings() {
+            const mainWarning = document.getElementById('main-warning');
+            const subWarning = document.getElementById('sub-warning');
+            
+            // Fade in warnings
+            animateOpacity(mainWarning, 0, 1, 1000);
+            setTimeout(() => {
+                animateOpacity(subWarning, 0, 0.9, 1000);
+            }, 500);
+            
+            // Pulse animation
+            setInterval(() => {
+                pulseElement(mainWarning, 7, 9, 1000);
+            }, 2000);
+            
+            setInterval(() => {
+                pulseElement(subWarning, 3.5, 4.5, 1000);
+            }, 2500);
+        }
+        
+        // Initialize Dark Forest with lurkers
+        function initializeDarkForest() {
+            console.log('Initializing Dark Forest...');
+            
+            // Create 8 lurkers in a tight circle around user
+            const distances = [6, 8, 7, 10, 9, 5, 8, 6]; // meters
+            const angles = [0, 45, 90, 135, 180, 225, 270, 315]; // degrees
+            
+            angles.forEach((angle, index) => {
+                const distance = distances[index];
+                createLurker(angle, distance, index);
+                threatCount++;
+            });
+            
+            // Update threat counter
+            updateThreatCounter();
+            
+            // Synchronized pulse - all lurkers activate at once
+            setTimeout(() => {
+                synchronizedPulse();
+            }, 1000);
+        }
+        
+        // Create a single lurker entity
+        function createLurker(angle, distance, index) {
+            // Calculate GPS coordinates
+            const angleRad = angle * Math.PI / 180;
+            const offsetLat = (distance * Math.cos(angleRad)) / 111000;
+            const offsetLon = (distance * Math.sin(angleRad)) / (111000 * Math.cos(userLat * Math.PI / 180));
+            
+            const lurkerLat = userLat + offsetLat;
+            const lurkerLon = userLon + offsetLon;
+            
+            // Create entity
+            const entity = document.createElement('a-entity');
+            entity.setAttribute('gps-entity-place', `latitude: ${lurkerLat}; longitude: ${lurkerLon}`);
+            entity.className = 'lurker';
+            entity.dataset.index = index;
+            
+            // Height varies
+            const heights = [2, 2.5, 2, 3, 2.5, 2, 2.5, 3];
+            const height = heights[index];
+            
+            // Eye colors (predatory)
+            const eyeColors = ['#ff0000', '#ff3300', '#ff6600', '#ff8800', '#ff0033', '#ff0066', '#ff3333', '#ff4444'];
+            const eyeColor = eyeColors[index];
+            
+            // Create shadow body (dark form)
+            const shadow = document.createElement('a-box');
+            shadow.setAttribute('position', `0 ${height} 0`);
+            shadow.setAttribute('scale', '1.5 4 0.5');
+            shadow.setAttribute('color', '#000000');
+            shadow.setAttribute('opacity', '0.6');
+            shadow.setAttribute('shader', 'flat');
+            shadow.className = 'lurker-shadow';
+            
+            // Add glitch texture effect
+            const glitchOverlay = document.createElement('a-box');
+            glitchOverlay.setAttribute('position', `0 ${height} 0.1`);
+            glitchOverlay.setAttribute('scale', '1.6 4.1 0.1');
+            glitchOverlay.setAttribute('color', '#330000');
+            glitchOverlay.setAttribute('opacity', '0.3');
+            glitchOverlay.setAttribute('shader', 'flat');
+            
+            // Create left eye
+            const leftEye = document.createElement('a-sphere');
+            leftEye.setAttribute('position', `-0.5 ${height + 1} 0.3`);
+            leftEye.setAttribute('radius', '1');
+            leftEye.setAttribute('color', eyeColor);
+            leftEye.setAttribute('shader', 'flat');
+            leftEye.setAttribute('material', `emissive: ${eyeColor}; emissiveIntensity: 1.5`);
+            leftEye.className = 'lurker-eye';
+            
+            // Create right eye
+            const rightEye = document.createElement('a-sphere');
+            rightEye.setAttribute('position', `0.5 ${height + 1} 0.3`);
+            rightEye.setAttribute('radius', '1');
+            rightEye.setAttribute('color', eyeColor);
+            rightEye.setAttribute('shader', 'flat');
+            rightEye.setAttribute('material', `emissive: ${eyeColor}; emissiveIntensity: 1.5`);
+            rightEye.className = 'lurker-eye';
+            
+            // Create pupil for left eye
+            const leftPupil = document.createElement('a-sphere');
+            leftPupil.setAttribute('position', '0 0 0.8');
+            leftPupil.setAttribute('radius', '0.5');
+            leftPupil.setAttribute('color', '#000000');
+            leftPupil.setAttribute('shader', 'flat');
+            leftEye.appendChild(leftPupil);
+            
+            // Create pupil for right eye
+            const rightPupil = document.createElement('a-sphere');
+            rightPupil.setAttribute('position', '0 0 0.8');
+            rightPupil.setAttribute('radius', '0.5');
+            rightPupil.setAttribute('color', '#000000');
+            rightPupil.setAttribute('shader', 'flat');
+            rightEye.appendChild(rightPupil);
+            
+            // Assemble lurker
+            entity.appendChild(shadow);
+            entity.appendChild(glitchOverlay);
+            entity.appendChild(leftEye);
+            entity.appendChild(rightEye);
+            
+            scene.appendChild(entity);
+            lurkerEntities.push(entity);
+            
+            // Start animations
+            animateLurker(entity, index);
+            
+            console.log(`Lurker ${index + 1} spawned at ${distance}m, angle ${angle}°`);
+        }
+        
+        // Animate individual lurker
+        function animateLurker(entity, index) {
+            const shadow = entity.querySelector('.lurker-shadow');
+            const eyes = entity.querySelectorAll('.lurker-eye');
+            
+            // Floating animation
+            let floatOffset = 0;
+            let floatDirection = 1;
+            const floatSpeed = 0.02 + (index * 0.005);
+            const floatRange = 0.3;
+            
+            setInterval(() => {
+                floatOffset += floatDirection * floatSpeed;
+                if (Math.abs(floatOffset) > floatRange) {
+                    floatDirection *= -1;
+                }
+                
+                const pos = shadow.getAttribute('position');
+                shadow.setAttribute('position', {
+                    x: pos.x,
+                    y: pos.y + floatOffset,
+                    z: pos.z
+                });
+            }, 50);
+            
+            // Pulsing eyes
+            eyes.forEach((eye, eyeIndex) => {
+                setInterval(() => {
+                    const currentIntensity = parseFloat(eye.getAttribute('material').emissiveIntensity);
+                    const newIntensity = currentIntensity > 1.2 ? 0.8 : 2.0;
+                    eye.setAttribute('material', `emissive: ${eye.getAttribute('color')}; emissiveIntensity: ${newIntensity}`);
+                }, 1500 + (index * 100) + (eyeIndex * 50));
+            });
+            
+            // Random reveal/glitch effect
+            setInterval(() => {
+                if (Math.random() > 0.7) {
+                    const glitch = entity.querySelectorAll('a-box')[1];
+                    if (glitch) {
+                        glitch.setAttribute('opacity', Math.random() * 0.5 + 0.3);
+                        setTimeout(() => {
+                            glitch.setAttribute('opacity', 0.3);
+                        }, 200);
+                    }
+                }
+            }, 2000 + (index * 300));
+        }
+        
+        // Synchronized pulse - all lurkers activate together
+        function synchronizedPulse() {
+            console.log('Synchronized pulse activated!');
+            
+            lurkerEntities.forEach((entity) => {
+                const eyes = entity.querySelectorAll('.lurker-eye');
+                eyes.forEach((eye) => {
+                    eye.setAttribute('material', `emissive: ${eye.getAttribute('color')}; emissiveIntensity: 3.0`);
+                });
+                
+                setTimeout(() => {
+                    eyes.forEach((eye) => {
+                        eye.setAttribute('material', `emissive: ${eye.getAttribute('color')}; emissiveIntensity: 1.5`);
+                    });
+                }, 500);
+            });
+            
+            // Flash warning text
+            const mainWarning = document.getElementById('main-warning');
+            animateOpacity(mainWarning, 1, 0.3, 250);
+            setTimeout(() => {
+                animateOpacity(mainWarning, 0.3, 1, 250);
+            }, 250);
+        }
+        
+        // Movement detection
+        function startMovementDetection() {
+            console.log('Movement detection active');
+            lastPosition = { lat: userLat, lon: userLon };
+            
+            setInterval(() => {
+                if (!movementDetectionActive) return;
+                
+                navigator.geolocation.getCurrentPosition((position) => {
+                    const newLat = position.coords.latitude;
+                    const newLon = position.coords.longitude;
+                    
+                    if (lastPosition) {
+                        const distance = calculateDistance(lastPosition.lat, lastPosition.lon, newLat, newLon);
+                        
+                        if (distance > 0.5) { // Moved more than 0.5 meters
+                            console.log(`Movement detected: ${distance.toFixed(2)}m`);
+                            onMovementDetected(distance);
+                            lastPosition = { lat: newLat, lon: newLon };
+                        }
+                    }
+                });
+            }, 3000); // Check every 3 seconds
+        }
+        
+        // Handle movement detection
+        function onMovementDetected(distance) {
+            // Update instruction text
+            const instructions = document.getElementById('instructions');
+            instructions.innerHTML = '⚠️ MOVEMENT DETECTED ⚠️<br><small>They sense you...</small>';
+            instructions.style.animation = 'pulse 0.5s 3';
+            
+            setTimeout(() => {
+                instructions.innerHTML = '⚠️ YOU ARE SURROUNDED ⚠️<br><small>Stay quiet. They are watching.</small>';
+            }, 2000);
+            
+            // Spawn new lurker if not at max
+            if (lurkerEntities.length < 15) {
+                const randomAngle = Math.random() * 360;
+                const randomDistance = 5 + Math.random() * 5;
+                createLurker(randomAngle, randomDistance, lurkerEntities.length);
+                threatCount++;
+                updateThreatCounter();
+            }
+            
+            // All lurkers react
+            synchronizedPulse();
+        }
+        
+        // Update threat counter display
+        function updateThreatCounter() {
+            document.getElementById('threat-count').textContent = threatCount;
+            document.getElementById('threat-counter').style.animation = 'pulse 0.5s 2';
+        }
+        
+        // Calculate distance between two GPS coordinates (in meters)
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371e3; // Earth radius in meters
+            const φ1 = lat1 * Math.PI / 180;
+            const φ2 = lat2 * Math.PI / 180;
+            const Δφ = (lat2 - lat1) * Math.PI / 180;
+            const Δλ = (lon2 - lon1) * Math.PI / 180;
+            
+            const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+                    Math.cos(φ1) * Math.cos(φ2) *
+                    Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            
+            return R * c;
+        }
+        
+        // Animation helpers
+        function animateOpacity(element, from, to, duration) {
+            const startTime = Date.now();
+            const animate = () => {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const value = from + (to - from) * progress;
+                element.setAttribute('opacity', value);
+                
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                }
+            };
+            animate();
+        }
+        
+        function pulseElement(element, fromScale, toScale, duration) {
+            const currentScale = element.getAttribute('scale');
+            element.setAttribute('scale', `${fromScale} ${fromScale} ${fromScale}`);
+            setTimeout(() => {
+                element.setAttribute('scale', `${toScale} ${toScale} ${toScale}`);
+            }, duration / 2);
+            setTimeout(() => {
+                element.setAttribute('scale', currentScale);
+            }, duration);
+        }
+    </script>
+</body>
+</html>
+
+<!--
+═══════════════════════════════════════════════════════════════════════════════
+                        DARK FOREST - LOCATION-BASED AR
+                    Dark Forest Theory Applied to the Internet
+═══════════════════════════════════════════════════════════════════════════════
+
+📱 TESTING INSTRUCTIONS:
+
+IMPORTANT: This MUST be tested OUTDOORS with GPS signal!
+
+METHOD 1: GitHub Pages (RECOMMENDED)
+──────────────────────────────────────
+1. Upload to GitHub repository
+2. Enable GitHub Pages
+3. Open URL on phone's browser
+4. Allow GPS and camera permissions
+5. Must be OUTSIDE for GPS to work
+
+METHOD 2: Local Testing with ngrok (Most Reliable)
+──────────────────────────────────────────────────
+1. Run: python3 serve.py
+2. In another terminal: ngrok http 8000
+3. Use the HTTPS URL on your phone
+4. Must be OUTSIDE for GPS to work
+
+🎯 WHAT YOU'LL EXPERIENCE:
+
+IMMEDIATE IMPACT (First 5 seconds):
+- Dramatic countdown: "3... 2... 1..."
+- 8 large lurkers spawn in tight circle around you (5-12 meters)
+- HUGE glowing red/orange eyes (1-2 meter radius)
+- Dark shadow forms visible behind eyes (4-6 meters tall)
+- Giant warning text: "⚠️ DANGER ⚠️" and "PREDATORS DETECTED"
+- Threat counter shows: "THREATS: 8"
+- All lurkers pulse in sync - coordinated "we see you" moment
+
+INTERACTIVE ELEMENTS:
+- Walk around = More lurkers spawn (max 15)
+- Movement detected = All lurkers pulse together
+- Warning text changes: "MOVEMENT DETECTED"
+- Threat counter increases
+- Eyes get brighter when you move
+
+VISUAL DETAILS:
+- Eyes: 1-2 meter glowing spheres with pupils
+- Shadow bodies: 4-6 meters tall, dark semi-transparent
+- Heights vary: 2-3 meters (eye level to above)
+- Distance: 5-12 meters (close, in your face)
+- Pulsing: Eyes pulse at 1.5 second cycles
+- Floating: Gentle bobbing motion
+- Glitch effects: Random red static overlays
+
+🎨 DARK FOREST THEORY CONCEPT:
+
+This represents:
+- Digital predators lurking in the darkness
+- The internet as a dangerous "dark forest" 
+- Hidden threats watching and waiting
+- The danger of revealing your presence (movement = attention)
+- AI/bots as apex predators in digital space
+- The survival strategy: stay quiet, stay hidden
+
+ATMOSPHERE:
+Tense, threatening, immediate danger - you are being hunted
+
+💡 CUSTOMIZATION:
+
+Change eye colors:
+- Line 359: eyeColors array (modify hex colors)
+
+Change lurker count:
+- Line 243: distances array (add/remove values)
+- Line 244: angles array (add/remove angles)
+
+Change spawn distance:
+- Line 243: distances array (5-12 meter range)
+
+Change movement sensitivity:
+- Line 492: if (distance > 0.5) - lower = more sensitive
+
+Max lurker limit:
+- Line 500: if (lurkerEntities.length < 15) - change 15
+
+⚠️ IMPORTANT NOTES:
+
+1. MUST BE TESTED OUTDOORS - GPS doesn't work indoors
+2. Needs clear sky view for GPS accuracy
+3. Best in open areas (parks, parking lots, yards)
+4. Limited movement area (5-10 meters) works perfectly
+5. Lurkers placed in tight circle - always visible
+6. High impact, impossible to miss
+
+TROUBLESHOOTING:
+
+If lurkers don't appear:
+- Check GPS permissions
+- Ensure you're outdoors
+- Check browser console for errors
+- Wait 10-15 seconds for GPS lock
+
+If experience is too intense:
+- Reduce lurker count (line 243-244)
+- Increase spawn distance (line 243)
+- Lower movement sensitivity (line 492)
+
+═══════════════════════════════════════════════════════════════════════════════
+-->
